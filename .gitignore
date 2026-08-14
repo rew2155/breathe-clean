@@ -1,2 +1,6 @@
 air-quality
 .env
+
+# Python cache
+__pycache__/
+*.pyc
