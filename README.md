@@ -29,10 +29,22 @@ The mock sensor generates PM2.5 readings and sends them to the FastAPI backend w
 ## API
 **POST /readings** - Stores a new PM2.5 reading
 
-```text
+```json
 {
     "pm25": 20.5
 }
+```
+
+**GET /readings** - Retrieves all stored PM2.5 readings
+
+```json
+[
+    {
+        "id": 48293482938423,
+        "pm25": 20.5,
+        "created_at": "2026-08-14T04:30:12.123456Z"
+    }
+]
 ```
 
 Goal:
