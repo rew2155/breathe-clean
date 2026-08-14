@@ -22,17 +22,18 @@ PostgreSQL
     | GET /readings
     v
 API Client
+```
 
 The mock sensor generates PM2.5 readings and sends them to the FastAPI backend which stores readings in a PostgreSQL database.
 
 ## API
-POST /readings
+**POST /readings** - Stores a new PM2.5 reading
 
-Stores a new PM2.5 reading:
-
+```text
 {
     "pm25": 20.5
 }
+```
 
 Goal:
 
