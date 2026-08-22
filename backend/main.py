@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -46,6 +47,18 @@ def mqtt_is_enabled() -> bool:
     return value == "true"
 
 
+def cors_origins() -> list[str]:
+    configured_origins = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    )
+    return [
+        origin.strip()
+        for origin in configured_origins.split(",")
+        if origin.strip()
+    ]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     transport = None
@@ -76,6 +89,13 @@ def get_purifier_controller(request: Request) -> PurifierAdapter:
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 DbSession = Annotated[Session, Depends(get_db)]
 PurifierController = Annotated[
     PurifierAdapter,
@@ -185,6 +205,44 @@ def get_rooms(db: DbSession):
             selectinload(Room.purifier),
         )
         .order_by(Room.name)
+    ).all()
+
+
+@app.get(
+    "/rooms/{room_id}",
+    response_model=RoomResponse,
+    responses={status.HTTP_404_NOT_FOUND: {"description": "Room not found"}},
+)
+def get_room(room_id: int, db: DbSession):
+    room = db.scalar(
+        select(Room)
+        .where(Room.id == room_id)
+        .options(selectinload(Room.sensor), selectinload(Room.purifier))
+    )
+    if room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Room not found",
+        )
+    return room
+
+
+@app.get(
+    "/rooms/{room_id}/readings",
+    response_model=list[SensorReadingResponse],
+    responses={status.HTTP_404_NOT_FOUND: {"description": "Room not found"}},
+)
+def get_room_readings(room_id: int, db: DbSession):
+    sensor_id = db.scalar(select(Sensor.id).where(Sensor.room_id == room_id))
+    if sensor_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Room not found",
+        )
+    return db.scalars(
+        select(SensorReading)
+        .where(SensorReading.sensor_id == sensor_id)
+        .order_by(SensorReading.created_at.desc())
     ).all()
 
 

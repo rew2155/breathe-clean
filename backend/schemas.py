@@ -1,7 +1,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
 
 from services.air_quality import EvaluationStatus
 
@@ -23,6 +29,10 @@ class SensorResponse(BaseModel):
     id: int
     room_id: int
 
+    @field_serializer("id", "room_id")
+    def serialize_ids(self, value: int) -> str:
+        return str(value)
+
 
 class PurifierResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -33,6 +43,10 @@ class PurifierResponse(BaseModel):
     desired_is_on: bool
     pending_command_id: UUID | None
 
+    @field_serializer("id", "room_id")
+    def serialize_ids(self, value: int) -> str:
+        return str(value)
+
 
 class RoomResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -41,6 +55,10 @@ class RoomResponse(BaseModel):
     name: str
     sensor: SensorResponse
     purifier: PurifierResponse
+
+    @field_serializer("id")
+    def serialize_id(self, value: int) -> str:
+        return str(value)
 
 
 class SensorReadingCreate(BaseModel):
@@ -56,6 +74,10 @@ class SensorReadingResponse(BaseModel):
     created_at: datetime
     sensor_id: int
     source_message_id: UUID | None
+
+    @field_serializer("id", "sensor_id")
+    def serialize_ids(self, value: int) -> str:
+        return str(value)
 
 
 class AirQualityEvaluationResponse(BaseModel):
