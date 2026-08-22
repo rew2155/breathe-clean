@@ -1,11 +1,14 @@
+import os
 import random
+
 import requests
 
 
 pm25 = round(random.uniform(0, 100), 1)
 
 reading = {
-    "pm25": pm25
+    "pm25": pm25,
+    "sensor_id": int(os.environ["SENSOR_ID"]),
 }
 
 response = requests.post(
