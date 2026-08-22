@@ -1,4 +1,5 @@
 air-quality
+.venv/
 .env
 
 # Python cache
