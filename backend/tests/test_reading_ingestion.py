@@ -5,7 +5,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from adapters.purifier import (
+    PurifierCommand,
     PurifierControlError,
+    PurifierControlResult,
     SimulatedPurifierAdapter,
 )
 from database import Base
@@ -13,6 +15,15 @@ from main import create_reading, create_room
 from models import Purifier, SensorReading
 from schemas import RoomCreate, SensorReadingCreate
 from services.air_quality import EvaluationStatus
+
+
+class PendingPurifierAdapter:
+    def __init__(self):
+        self.commands = []
+
+    def set_state(self, purifier_id: int, desired_state: bool):
+        self.commands.append(PurifierCommand(purifier_id, desired_state))
+        return PurifierControlResult(state_confirmed=False)
 
 
 class ReadingIngestionTests(unittest.TestCase):
@@ -56,6 +67,7 @@ class ReadingIngestionTests(unittest.TestCase):
 
         purifier = self.db.get(Purifier, self.room.purifier.id)
         self.assertTrue(purifier.is_on)
+        self.assertTrue(purifier.desired_is_on)
         self.assertEqual(len(self.adapter.commands), 1)
         self.assertEqual(
             self.db.scalar(select(func.count()).select_from(SensorReading)),
@@ -102,11 +114,31 @@ class ReadingIngestionTests(unittest.TestCase):
 
         purifier = self.db.get(Purifier, self.room.purifier.id)
         self.assertFalse(purifier.is_on)
+        self.assertFalse(purifier.desired_is_on)
         self.assertEqual(len(failing_adapter.commands), 1)
         self.assertEqual(
             self.db.scalar(select(func.count()).select_from(SensorReading)),
             2,
         )
+
+    def test_tracks_requested_state_until_device_confirms_it(self):
+        pending_adapter = PendingPurifierAdapter()
+        self.ingest(20)
+        self.ingest(20)
+
+        create_reading(
+            SensorReadingCreate(
+                pm25=20,
+                sensor_id=self.room.sensor.id,
+            ),
+            self.db,
+            pending_adapter,
+        )
+
+        purifier = self.db.get(Purifier, self.room.purifier.id)
+        self.assertTrue(purifier.desired_is_on)
+        self.assertFalse(purifier.is_on)
+        self.assertEqual(len(pending_adapter.commands), 1)
 
 
 if __name__ == "__main__":

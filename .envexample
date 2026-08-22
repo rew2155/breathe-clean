@@ -1,1 +1,5 @@
 DATABASE_URL=postgresql+psycopg://username:password@localhost/breathe_clean
+MQTT_ENABLED=false
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_CLIENT_ID=breathe-clean-backend

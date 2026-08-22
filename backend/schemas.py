@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -29,6 +30,8 @@ class PurifierResponse(BaseModel):
     id: int
     room_id: int
     is_on: bool
+    desired_is_on: bool
+    pending_command_id: UUID | None
 
 
 class RoomResponse(BaseModel):
@@ -52,6 +55,7 @@ class SensorReadingResponse(BaseModel):
     pm25: float
     created_at: datetime
     sensor_id: int
+    source_message_id: UUID | None
 
 
 class AirQualityEvaluationResponse(BaseModel):

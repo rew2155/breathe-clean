@@ -3,6 +3,7 @@ import unittest
 from adapters.purifier import (
     PurifierCommand,
     PurifierControlError,
+    PurifierControlResult,
     SimulatedPurifierAdapter,
 )
 
@@ -11,12 +12,13 @@ class SimulatedPurifierAdapterTests(unittest.TestCase):
     def test_records_turn_on_command(self):
         adapter = SimulatedPurifierAdapter()
 
-        adapter.set_state(purifier_id=123, desired_state=True)
+        result = adapter.set_state(purifier_id=123, desired_state=True)
 
         self.assertEqual(
             adapter.commands,
             [PurifierCommand(purifier_id=123, desired_state=True)],
         )
+        self.assertEqual(result, PurifierControlResult(state_confirmed=True))
 
     def test_records_turn_off_command(self):
         adapter = SimulatedPurifierAdapter()
