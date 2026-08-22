@@ -32,6 +32,7 @@ The mock sensor generates PM2.5 readings and sends them to the FastAPI backend w
 
 - Python 3.12 or later
 - PostgreSQL
+- Eclipse Mosquitto for local MQTT development
 
 Clone the repository and move into its root directory. Then create and activate a virtual environment:
 
@@ -145,9 +146,50 @@ This policy is an initial engineering rule and does not represent regulatory com
 
 ## Purifier Control
 
-The backend currently uses a simulated purifier adapter. When an air-quality evaluation is ready and its desired state differs from the purifier's stored state, the adapter records an on/off command. The stored state is updated only after the simulated command succeeds. Repeated readings do not issue duplicate commands when the purifier is already in the desired state.
+The backend currently uses a simulated purifier adapter. When an air-quality evaluation is ready and its desired state differs from the purifier's requested state, the adapter records an on/off command. Repeated readings do not issue duplicate commands when the purifier already has that requested state.
+
+Purifiers track two states:
+
+- `desired_is_on` records the state requested by the backend.
+- `is_on` records the state confirmed by the device.
+- `pending_command_id` links an outstanding MQTT command to its acknowledgment.
+
+The simulator confirms commands immediately, so it updates both state values. The MQTT adapter publishes a command, records it as pending, and leaves `is_on` unchanged. A matching state message confirms the command and updates `is_on`; acknowledgments for older commands are ignored.
 
 A failed purifier command returns `503 Service Unavailable`, leaves the purifier state unchanged, and rolls back the reading being processed.
+
+## MQTT Protocol
+
+Device messages use versioned MQTT topics so the protocol can evolve without silently breaking existing clients:
+
+```text
+breathe-clean/v1/sensors/{sensor_id}/readings
+breathe-clean/v1/purifiers/{purifier_id}/commands
+breathe-clean/v1/purifiers/{purifier_id}/state
+```
+
+Every JSON message includes a UUID message identifier, a device identifier, and a timezone-aware timestamp. Purifier state messages also reference the command they acknowledge.
+
+Sensor message IDs are stored with their readings and uniquely constrained. If a QoS 1 message is delivered again, the consumer recognizes it as already processed instead of storing another reading or repeating a purifier command.
+
+The backend MQTT transport defaults to a local broker. These values can be changed in `.env`:
+
+```env
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_CLIENT_ID=breathe-clean-backend
+MQTT_ENABLED=false
+```
+
+Start an installed Mosquitto broker for local development with:
+
+```bash
+mosquitto -v
+```
+
+Set `MQTT_ENABLED=true` after the broker is running. When enabled, FastAPI connects during application startup, consumes sensor readings and purifier acknowledgments, and publishes purifier commands. When disabled, the REST API continues to use the simulated purifier adapter and does not require a broker.
+
+MQTT publishes use quality of service level 1 and wait for broker acknowledgment. Subscriptions are renewed whenever the transport reconnects.
 
 ## API
 
@@ -173,7 +215,9 @@ A failed purifier command returns `503 Service Unavailable`, leaves the purifier
         "purifier": {
             "id": 789,
             "room_id": 123,
-            "is_on": false
+            "is_on": false,
+            "desired_is_on": false,
+            "pending_command_id": null
         }
     }
 ]
@@ -196,7 +240,8 @@ The response includes the stored reading and the current policy evaluation:
         "id": 48293482938423,
         "pm25": 20.5,
         "created_at": "2026-08-14T04:30:12.123456Z",
-        "sensor_id": 456
+        "sensor_id": 456,
+        "source_message_id": null
     },
     "evaluation": {
         "status": "ready",
@@ -215,7 +260,8 @@ The response includes the stored reading and the current policy evaluation:
         "id": 48293482938423,
         "pm25": 20.5,
         "created_at": "2026-08-14T04:30:12.123456Z",
-        "sensor_id": 456
+        "sensor_id": 456,
+        "source_message_id": null
     }
 ]
 ```

@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timezone
+from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -69,6 +71,8 @@ class Purifier(Base):
         unique=True,
     )
     is_on: Mapped[bool] = mapped_column(Boolean, default=False)
+    desired_is_on: Mapped[bool] = mapped_column(Boolean, default=False)
+    pending_command_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
 
     room: Mapped[Room] = relationship(back_populates="purifier")
 
@@ -89,6 +93,11 @@ class SensorReading(Base):
     sensor_id: Mapped[int] = mapped_column(
         ForeignKey("sensors.id"),
         index=True,
+    )
+    source_message_id: Mapped[UUID | None] = mapped_column(
+        Uuid,
+        unique=True,
+        nullable=True,
     )
 
     sensor: Mapped[Sensor] = relationship(back_populates="readings")
