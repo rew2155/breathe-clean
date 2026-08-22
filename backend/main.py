@@ -8,6 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from adapters.purifier import (
+    PurifierAdapter,
+    PurifierControlError,
+    get_purifier_adapter,
+)
 from database import get_db
 from models import Purifier, Room, Sensor, SensorReading
 from schemas import (
@@ -21,6 +26,7 @@ from schemas import (
 from services.air_quality import (
     DEFAULT_WINDOW,
     AirQualitySample,
+    EvaluationStatus,
     evaluate_air_quality,
 )
 
@@ -28,6 +34,7 @@ from services.air_quality import (
 logger = logging.getLogger(__name__)
 app = FastAPI()
 DbSession = Annotated[Session, Depends(get_db)]
+PurifierController = Annotated[PurifierAdapter, Depends(get_purifier_adapter)]
 
 
 @app.exception_handler(SQLAlchemyError)
@@ -44,6 +51,23 @@ async def database_error_handler(
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "Database service is unavailable"},
+    )
+
+
+@app.exception_handler(PurifierControlError)
+async def purifier_control_error_handler(
+    request: Request,
+    exc: PurifierControlError,
+) -> JSONResponse:
+    logger.error(
+        "Purifier control failed for %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Purifier control service is unavailable"},
     )
 
 
@@ -110,11 +134,15 @@ def get_rooms(db: DbSession):
             "description": "Sensor does not exist"
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "Database service is unavailable"
+            "description": "Database or purifier control is unavailable"
         }
     },
 )
-def create_reading(reading: SensorReadingCreate, db: DbSession):
+def create_reading(
+    reading: SensorReadingCreate,
+    db: DbSession,
+    purifier_adapter: PurifierController,
+):
     sensor = db.get(Sensor, reading.sensor_id)
     if sensor is None:
         raise HTTPException(
@@ -160,6 +188,16 @@ def create_reading(reading: SensorReadingCreate, db: DbSession):
         purifier_is_on=purifier.is_on,
         now=evaluation_time,
     )
+
+    if (
+        evaluation.status is EvaluationStatus.READY
+        and evaluation.desired_purifier_state != purifier.is_on
+    ):
+        purifier_adapter.set_state(
+            purifier_id=purifier.id,
+            desired_state=evaluation.desired_purifier_state,
+        )
+        purifier.is_on = evaluation.desired_purifier_state
 
     db.commit()
     db.refresh(db_reading)
