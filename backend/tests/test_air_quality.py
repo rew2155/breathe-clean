@@ -63,7 +63,7 @@ class EvaluateAirQualityTests(unittest.TestCase):
             recorded_at=self.now - timedelta(minutes=minutes_ago),
         )
 
-    def test_uses_readings_inside_five_minute_window(self):
+    def test_uses_only_readings_inside_five_minute_window(self):
         evaluation = evaluate_air_quality(
             [
                 self.sample(20, 1),
@@ -80,18 +80,42 @@ class EvaluateAirQualityTests(unittest.TestCase):
         self.assertEqual(evaluation.average_pm25, 16)
         self.assertTrue(evaluation.desired_purifier_state)
 
-    def test_preserves_state_with_too_few_recent_readings(self):
+    def test_supports_available_readings_at_four_minute_intervals(self):
+        evaluation = evaluate_air_quality(
+            [
+                self.sample(20, 0),
+                self.sample(18, 4),
+                self.sample(16, 8),
+            ],
+            purifier_is_on=False,
+            now=self.now,
+        )
+
+        self.assertEqual(evaluation.status, EvaluationStatus.READY)
+        self.assertEqual(evaluation.reading_count, 2)
+        self.assertEqual(evaluation.average_pm25, 19)
+        self.assertTrue(evaluation.desired_purifier_state)
+
+    def test_acts_on_two_recent_readings(self):
         evaluation = evaluate_air_quality(
             [self.sample(20, 1), self.sample(20, 2)],
             purifier_is_on=False,
             now=self.now,
         )
 
-        self.assertEqual(
-            evaluation.status,
-            EvaluationStatus.INSUFFICIENT_DATA,
+        self.assertEqual(evaluation.status, EvaluationStatus.READY)
+        self.assertTrue(evaluation.desired_purifier_state)
+
+    def test_acts_on_one_recent_reading(self):
+        evaluation = evaluate_air_quality(
+            [self.sample(20, 1)],
+            purifier_is_on=False,
+            now=self.now,
         )
-        self.assertFalse(evaluation.desired_purifier_state)
+
+        self.assertEqual(evaluation.status, EvaluationStatus.READY)
+        self.assertEqual(evaluation.reading_count, 1)
+        self.assertTrue(evaluation.desired_purifier_state)
 
     def test_reports_stale_when_only_old_readings_exist(self):
         evaluation = evaluate_air_quality(

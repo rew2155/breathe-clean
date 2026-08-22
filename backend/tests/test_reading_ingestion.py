@@ -48,19 +48,13 @@ class ReadingIngestionTests(unittest.TestCase):
             self.adapter,
         )
 
-    def test_evaluates_after_three_recent_readings(self):
+    def test_evaluates_after_first_recent_reading(self):
         first = self.ingest(20)
         second = self.ingest(20)
         third = self.ingest(20)
 
-        self.assertEqual(
-            first.evaluation.status,
-            EvaluationStatus.INSUFFICIENT_DATA,
-        )
-        self.assertEqual(
-            second.evaluation.status,
-            EvaluationStatus.INSUFFICIENT_DATA,
-        )
+        self.assertEqual(first.evaluation.status, EvaluationStatus.READY)
+        self.assertEqual(second.evaluation.status, EvaluationStatus.READY)
         self.assertEqual(third.evaluation.status, EvaluationStatus.READY)
         self.assertEqual(third.evaluation.average_pm25, 20)
         self.assertTrue(third.evaluation.desired_purifier_state)
@@ -98,8 +92,6 @@ class ReadingIngestionTests(unittest.TestCase):
 
     def test_does_not_update_state_when_adapter_fails(self):
         failing_adapter = SimulatedPurifierAdapter(should_fail=True)
-        self.ingest(20)
-        self.ingest(20)
 
         with self.assertRaises(PurifierControlError):
             create_reading(
@@ -118,14 +110,11 @@ class ReadingIngestionTests(unittest.TestCase):
         self.assertEqual(len(failing_adapter.commands), 1)
         self.assertEqual(
             self.db.scalar(select(func.count()).select_from(SensorReading)),
-            2,
+            0,
         )
 
     def test_tracks_requested_state_until_device_confirms_it(self):
         pending_adapter = PendingPurifierAdapter()
-        self.ingest(20)
-        self.ingest(20)
-
         create_reading(
             SensorReadingCreate(
                 pm25=20,

@@ -8,7 +8,7 @@ from enum import StrEnum
 DEFAULT_TURN_ON_THRESHOLD = 15.0
 DEFAULT_TURN_OFF_THRESHOLD = 8.0
 DEFAULT_WINDOW = timedelta(minutes=5)
-DEFAULT_MINIMUM_READINGS = 3
+DEFAULT_MINIMUM_READINGS = 1
 
 
 class EvaluationStatus(StrEnum):
@@ -85,15 +85,13 @@ def evaluate_air_quality(
         for sample in all_samples
         if window_start <= sample.recorded_at <= evaluation_time
     ]
-
     if not recent_samples:
-        status = (
-            EvaluationStatus.STALE
-            if all_samples
-            else EvaluationStatus.INSUFFICIENT_DATA
-        )
         return AirQualityEvaluation(
-            status=status,
+            status=(
+                EvaluationStatus.STALE
+                if all_samples
+                else EvaluationStatus.INSUFFICIENT_DATA
+            ),
             desired_purifier_state=purifier_is_on,
             reading_count=0,
             average_pm25=None,

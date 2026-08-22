@@ -5,32 +5,39 @@ The beginning of Breathe Clean: an application that monitors the air quality of 
 ## Overview
 
 Breathe Clean is an IoT-style project for monitoring indoor air quality and controlling an air purifier based on the PM2.5 air quality reading. 
-The project currently includes a mock PM2.5 sensor, a FastAPI backend, and a PostgreSQL integration.
+The project currently includes a four-room home simulator, automatic purifier
+control, a FastAPI and PostgreSQL backend, MQTT device messaging, and a React
+dashboard with room-specific reading history.
 
 ### Current Data Flow
 
 ```text
-Mock Sensor
+Four-room Sensor Simulator
     |
     | POST /readings
     v
 FastAPI Backend
-    |
+    |                    |
+    | SQLAlchemy         | purifier commands
     v
 PostgreSQL
     |
-    | GET /readings
+    | GET /rooms and room history
     v
-API Client
+React Dashboard
 ```
 
-The mock sensor generates PM2.5 readings and sends them to the FastAPI backend which stores readings in a PostgreSQL database.
+The simulator generates independent PM2.5 readings for each room. FastAPI stores
+them, evaluates that room's recent air quality, and controls only its purifier. The
+dashboard shows the latest state of every room, and each room card links to its
+complete reading history.
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.12 or later
+- Node.js 24 or later
 - PostgreSQL
 - Eclipse Mosquitto for local MQTT development
 
@@ -51,6 +58,14 @@ Install the backend dependencies:
 
 ```bash
 python -m pip install -r backend/requirements.txt
+```
+
+Install the frontend dependencies:
+
+```bash
+cd frontend
+npm install
+cd ..
 ```
 
 ## Database Setup
@@ -110,14 +125,56 @@ uvicorn main:app --reload
 
 The API is available at `http://127.0.0.1:8000`, and its interactive documentation is available at `http://127.0.0.1:8000/docs`.
 
-With the API still running, open another terminal in the repository root, activate the virtual environment, and send a mock sensor reading:
+In another terminal, start the React development server:
+
+```bash
+cd frontend
+npm run dev
+```
+
+The dashboard is available at `http://127.0.0.1:5173` and calls FastAPI at `http://127.0.0.1:8000`. FastAPI allows requests from the local Vite origins through its CORS configuration.
+
+Configure comma-separated frontend origins in `.env` when the dashboard runs at different URLs:
+
+```env
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+For a deployed frontend, replace these development origins with the exact production origin. Do not use a wildcard when adding credentialed requests later.
+
+Seed the four-room demo once before starting the API or simulator:
 
 ```bash
 source .venv/bin/activate
-SENSOR_ID=<configured-sensor-id> python backend/mock_sensor.py
+cd backend
+python seed.py
 ```
 
-Retrieve the stored readings with:
+The seed is safe to run more than once. It creates Master Bedroom, Living Room,
+Kitchen, and Home Office, each with its own sensor and purifier. If the migration
+created a Legacy Room, the seed renames it to Master Bedroom so its existing
+readings are preserved.
+
+With the API running, start the home simulator from another terminal:
+
+```bash
+source .venv/bin/activate
+cd backend
+python mock_sensor.py
+```
+
+It publishes one reading for every room immediately and then every four minutes.
+Each room changes independently, and an active purifier gradually lowers only that
+room's simulated PM2.5. For a faster local demo, override the interval:
+
+```bash
+SIMULATION_INTERVAL_SECONDS=10 python mock_sensor.py
+```
+
+The React dashboard refreshes its rooms, readings, and purifier states every 15
+seconds. Click a room card to open `/rooms/{room_id}`, where a trend chart and
+timestamped reading list show that room's history. You can also retrieve the stored
+readings directly with:
 
 ```bash
 curl http://127.0.0.1:8000/readings
@@ -130,6 +187,14 @@ cd backend
 python -m unittest discover -s tests
 ```
 
+Run the frontend checks with:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
 ## Air-Quality Policy
 
 The initial purifier policy uses separate thresholds to avoid rapid on/off cycling:
@@ -137,9 +202,9 @@ The initial purifier policy uses separate thresholds to avoid rapid on/off cycli
 - When off, the purifier turns on at an average PM2.5 reading of `15 µg/m³` or higher.
 - When on, the purifier turns off at an average PM2.5 reading of `8 µg/m³` or lower.
 - Between those thresholds, the purifier keeps its current state.
-- The average uses readings from the previous five minutes.
-- At least three recent readings are required before changing state.
-- Too few readings preserve the current purifier state.
+- The average uses all of that sensor's readings from the previous five minutes.
+- One recent reading is enough to make a decision, so elevated air turns the
+  purifier on immediately.
 - A sensor with historical readings but none in the window is reported as stale.
 
 This policy is an initial engineering rule and does not represent regulatory compliance. The thresholds and averaging window will be tuned using real sensor data.
@@ -203,18 +268,21 @@ MQTT publishes use quality of service level 1 and wait for broker acknowledgment
 
 **GET /rooms** - Retrieves rooms and their configured devices
 
+Identifiers are serialized as strings in responses because PostgreSQL `BIGINT`
+values can exceed JavaScript's safe integer range.
+
 ```json
 [
     {
-        "id": 123,
+        "id": "123",
         "name": "Master Bedroom",
         "sensor": {
-            "id": 456,
-            "room_id": 123
+            "id": "456",
+            "room_id": "123"
         },
         "purifier": {
-            "id": 789,
-            "room_id": 123,
+            "id": "789",
+            "room_id": "123",
             "is_on": false,
             "desired_is_on": false,
             "pending_command_id": null
@@ -222,6 +290,10 @@ MQTT publishes use quality of service level 1 and wait for broker acknowledgment
     }
 ]
 ```
+
+**GET /rooms/{room_id}** - Retrieves one room and its configured devices
+
+**GET /rooms/{room_id}/readings** - Retrieves that room's readings newest-first
 
 **POST /readings** - Stores a new PM2.5 reading
 
@@ -237,17 +309,17 @@ The response includes the stored reading and the current policy evaluation:
 ```json
 {
     "reading": {
-        "id": 48293482938423,
+        "id": "48293482938423",
         "pm25": 20.5,
         "created_at": "2026-08-14T04:30:12.123456Z",
-        "sensor_id": 456,
+        "sensor_id": "456",
         "source_message_id": null
     },
     "evaluation": {
         "status": "ready",
         "desired_purifier_state": true,
-        "reading_count": 3,
-        "average_pm25": 18.2
+        "reading_count": 1,
+        "average_pm25": 20.5
     }
 }
 ```
@@ -257,10 +329,10 @@ The response includes the stored reading and the current policy evaluation:
 ```json
 [
     {
-        "id": 48293482938423,
+        "id": "48293482938423",
         "pm25": 20.5,
         "created_at": "2026-08-14T04:30:12.123456Z",
-        "sensor_id": 456,
+        "sensor_id": "456",
         "source_message_id": null
     }
 ]

@@ -1,4 +1,5 @@
 DATABASE_URL=postgresql+psycopg://username:password@localhost/breathe_clean
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 MQTT_ENABLED=false
 MQTT_HOST=localhost
 MQTT_PORT=1883
