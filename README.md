@@ -143,6 +143,12 @@ The initial purifier policy uses separate thresholds to avoid rapid on/off cycli
 
 This policy is an initial engineering rule and does not represent regulatory compliance. The thresholds and averaging window will be tuned using real sensor data.
 
+## Purifier Control
+
+The backend currently uses a simulated purifier adapter. When an air-quality evaluation is ready and its desired state differs from the purifier's stored state, the adapter records an on/off command. The stored state is updated only after the simulated command succeeds. Repeated readings do not issue duplicate commands when the purifier is already in the desired state.
+
+A failed purifier command returns `503 Service Unavailable`, leaves the purifier state unchanged, and rolls back the reading being processed.
+
 ## API
 
 **POST /rooms** - Creates a room with one sensor and one purifier
