@@ -113,7 +113,7 @@ With the API still running, open another terminal in the repository root, activa
 
 ```bash
 source .venv/bin/activate
-python backend/mock_sensor.py
+SENSOR_ID=<configured-sensor-id> python backend/mock_sensor.py
 ```
 
 Retrieve the stored readings with:
@@ -122,13 +122,82 @@ Retrieve the stored readings with:
 curl http://127.0.0.1:8000/readings
 ```
 
+Run the backend unit tests with:
+
+```bash
+cd backend
+python -m unittest discover -s tests
+```
+
+## Air-Quality Policy
+
+The initial purifier policy uses separate thresholds to avoid rapid on/off cycling:
+
+- When off, the purifier turns on at an average PM2.5 reading of `15 µg/m³` or higher.
+- When on, the purifier turns off at an average PM2.5 reading of `8 µg/m³` or lower.
+- Between those thresholds, the purifier keeps its current state.
+- The average uses readings from the previous five minutes.
+- At least three recent readings are required before changing state.
+- Too few readings preserve the current purifier state.
+- A sensor with historical readings but none in the window is reported as stale.
+
+This policy is an initial engineering rule and does not represent regulatory compliance. The thresholds and averaging window will be tuned using real sensor data.
+
 ## API
+
+**POST /rooms** - Creates a room with one sensor and one purifier
+
+```json
+{
+    "name": "Master Bedroom"
+}
+```
+
+**GET /rooms** - Retrieves rooms and their configured devices
+
+```json
+[
+    {
+        "id": 123,
+        "name": "Master Bedroom",
+        "sensor": {
+            "id": 456,
+            "room_id": 123
+        },
+        "purifier": {
+            "id": 789,
+            "room_id": 123,
+            "is_on": false
+        }
+    }
+]
+```
 
 **POST /readings** - Stores a new PM2.5 reading
 
 ```json
 {
-    "pm25": 20.5
+    "pm25": 20.5,
+    "sensor_id": 456
+}
+```
+
+The response includes the stored reading and the current policy evaluation:
+
+```json
+{
+    "reading": {
+        "id": 48293482938423,
+        "pm25": 20.5,
+        "created_at": "2026-08-14T04:30:12.123456Z",
+        "sensor_id": 456
+    },
+    "evaluation": {
+        "status": "ready",
+        "desired_purifier_state": true,
+        "reading_count": 3,
+        "average_pm25": 18.2
+    }
 }
 ```
 
@@ -139,7 +208,8 @@ curl http://127.0.0.1:8000/readings
     {
         "id": 48293482938423,
         "pm25": 20.5,
-        "created_at": "2026-08-14T04:30:12.123456Z"
+        "created_at": "2026-08-14T04:30:12.123456Z",
+        "sensor_id": 456
     }
 ]
 ```
